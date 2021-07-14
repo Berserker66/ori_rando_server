@@ -1,6 +1,6 @@
-from seedbuilder.oriparse import get_areas
+from .seedbuilder.oriparse import get_areas
 from collections import defaultdict, Counter
-from pickups import Pickup
+from .pickups import Pickup
 
 class PlayerState(object):
     name_from_id = {
@@ -73,7 +73,7 @@ class Connection(object):
         cheapest = [req for req in res if req.cnt["KS"] <= least_ks]
         return (True, cheapest, least_ks)
     def __str__(self):
-        return "Connection to %s: %s" % (self.target, "\n".join(["%s: %s" % (mode, "|".join([str(x) for x in req])) for mode, req in self.reqs.items()]))
+        return "Connection to %s: %s" % (self.target, "\n".join(["%s: %s" % (mode, "|".join([str(x) for x in req])) for mode, req in list(self.reqs.items())]))
 
     def add_requirements(self, req, mode):
         def translate(req_part):
@@ -107,9 +107,9 @@ class Map(object):
     @staticmethod
     def build():
         areas = get_areas()["homes"]
-        for name, area_data in areas.iteritems():
+        for name, area_data in areas.items():
             area = Area(name)
-            for target, conn_data in area_data["conns"].iteritems():
+            for target, conn_data in area_data["conns"].items():
                 conn = Connection(target)
                 if not conn_data["paths"]:
                     conn.add_requirements([], "casual-core")
@@ -140,15 +140,15 @@ class Map(object):
             reachable_areas.add(curr)
             needs_ks_check.add(curr)
             reachable = Map.areas[curr].get_reachable(state, modes)
-            for k, v in reachable.iteritems():
+            for k, v in reachable.items():
                 Map.reached_with[k] |= set(v)
-            unchecked_areas |= set([r for r in reachable.keys() if r not in reachable_areas])
+            unchecked_areas |= set([r for r in list(reachable.keys()) if r not in reachable_areas])
             while len(unchecked_areas) < len(needs_ks_check):
                 curr = needs_ks_check.pop()
                 reachable = Map.areas[curr].get_reachable(state, modes, True)
-                for k, v in reachable.iteritems():
+                for k, v in reachable.items():
                     Map.reached_with[k] |= set(v)
-                unchecked_areas |= set([r for r in reachable.keys() if r not in reachable_areas])
+                unchecked_areas |= set([r for r in list(reachable.keys()) if r not in reachable_areas])
 
         mapstone_cnt = min(len([a for a in reachable_areas if a.endswith("Map")]), state.has["MS"])
         if mapstone_cnt == 9 and state.has["MS"] < 11:

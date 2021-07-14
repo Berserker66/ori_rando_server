@@ -1,4 +1,4 @@
-from __future__ import division, print_function
+
 from math import floor
 from collections import defaultdict, namedtuple
 from seedbuilder.oriparse import get_areas
@@ -152,7 +152,7 @@ def picks_by_type(extras=False):
 
     picks_by_type = defaultdict(lambda: [])
     all_locs_unpacked = {unpack(loc): loc for loc in all_locs}
-    for area, loc_info in locs.iteritems():
+    for area, loc_info in locs.items():
         x = loc_info["x"]
         y = loc_info["y"]
         item = loc_info["item"]
@@ -171,14 +171,14 @@ def picks_by_type(extras=False):
             p_type = extra.name[0:2]
             if p_type == "Ma":
                 picks_by_type["MP"].append(extra)
-            elif p_type in picks_by_type.keys():
+            elif p_type in list(picks_by_type.keys()):
                 picks_by_type[p_type].append(extra)
     return picks_by_type
 
 def picks_by_coord(extras=False):
     pbt = picks_by_type(extras)
     pbc = {}
-    for pickgroup in pbt.values():
+    for pickgroup in list(pbt.values()):
         for pick in pickgroup:
             pbc[pick.coords] = pick
     return pbc

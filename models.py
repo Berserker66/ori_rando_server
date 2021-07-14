@@ -8,11 +8,11 @@ from datetime import datetime, timedelta
 from calendar import timegm
 from collections import defaultdict, OrderedDict
 
-from seedbuilder.seedparams import Placement, Stuff, SeedGenParams
-from enums import MultiplayerGameType, ShareType, Variation
-from util import picks_by_coord, get_bit, get_taste, enums_from_strlist, ord_suffix, debug, bfields_to_coords
-from pickups import Pickup, Skill, Teleporter, Event
-from cache import Cache
+from .seedbuilder.seedparams import Placement, Stuff, SeedGenParams
+from .enums import MultiplayerGameType, ShareType, Variation
+from .util import picks_by_coord, get_bit, get_taste, enums_from_strlist, ord_suffix, debug, bfields_to_coords
+from .pickups import Pickup, Skill, Teleporter, Event
+from .cache import Cache
 
 trees_by_coords = {
     -3160308: Pickup.n("RB", 900),
@@ -191,7 +191,7 @@ class User(ndb.Model):
             game_count = len(user.games)
             user.games = [g for g in user.games if g in keys]
             if len(user.games) < game_count:
-                print "removed %s games from %s's gamelist" % (game_count - len(user.games), user.name)
+                print("removed %s games from %s's gamelist" % (game_count - len(user.games), user.name))
                 user.put()
 
     @staticmethod
@@ -365,8 +365,8 @@ class Player(ndb.Model):
     # post-refactor version of bitfields
     def output(self):
         outlines = [str(x) for x in [self.skills, self.events, self.teleporters]]
-        outlines.append(";".join([ "%sx%s" % (_id, cnt) for (_id, cnt) in self.bonuses.iteritems()]))
-        outlines.append(";".join(["%s:%s" % (loc, finder) for (loc, finder) in self.hints.iteritems()]))
+        outlines.append(";".join([ "%sx%s" % (_id, cnt) for (_id, cnt) in self.bonuses.items()]))
+        outlines.append(";".join(["%s:%s" % (loc, finder) for (loc, finder) in self.hints.items()]))
         if self.signals:
             outlines.append("|".join(self.signals))
         return ",".join(outlines)
@@ -638,7 +638,7 @@ class BingoGameData(ndb.Model):
             if len(noncounts) >= square_count:
                 squares = rand.sample(noncounts, square_count)
             else:
-                squares = noncounts + rand.sample(range(25), square_count - len(noncounts))
+                squares = noncounts + rand.sample(list(range(25)), square_count - len(noncounts))
             for s in squares:
                 if (s % 5 != 4 and s+1 in squares) or (s % 5 != 0 and s-1 in squares) or (s > 4 and s-5 in squares) or (s < 20 and s+5 in squares):
                     i += 1
@@ -767,7 +767,7 @@ class BingoGameData(ndb.Model):
                 goals[card.name] = goals.get(card.name, []) + ["COUNT"]
             else:
                 goals[""].append(card.name + ("-%s" % card.target if card.target else ""))
-        goalstr = "Goals" + "/".join(["%s:%s" % (goal, ",".join(set(subgoals))) for (goal, subgoals) in goals.items()]) + "\n"
+        goalstr = "Goals" + "/".join(["%s:%s" % (goal, ",".join(set(subgoals))) for (goal, subgoals) in list(goals.items())]) + "\n"
         if not game.params:
             return sync_flag + self.rand_dat + "\n" + goalstr
         else:
@@ -847,7 +847,7 @@ class BingoGameData(ndb.Model):
                 place = ord_suffix(team.place)
                 win_players = True
         elif change_squares:
-            for bingo, line in lines_by_index.items():
+            for bingo, line in list(lines_by_index.items()):
                 if set(line) & change_squares:
                     squares = len([square for square in line if cpid in self.board[square].completed_by])
                     lost_squares = len(set(line) & loss_squares)
@@ -878,7 +878,7 @@ class BingoGameData(ndb.Model):
             p_list = [player] + teammates
             for p in p_list:
                 p.signal_send(win_sig % (place, round_now))
-        Cache.set_board(game_id, self.get_json(players=players_by_id.values()))
+        Cache.set_board(game_id, self.get_json(players=list(players_by_id.values())))
         player.put()
         if need_write:
             self.put()
@@ -1034,7 +1034,7 @@ class Game(ndb.Model):
             for (field, cls) in [("skills", Skill), ("teleporters", Teleporter), ("events", Event)]:
                 bitmap = getattr(src, field)
                 names = []
-                for id, bit in cls.bits.iteritems():
+                for id, bit in cls.bits.items():
                     i = cls(id)
                     if i:
                         if i.stacks:
@@ -1048,7 +1048,7 @@ class Game(ndb.Model):
             trees = []
             relics = []
             bonuses = []
-            for (name, cnt) in [(Pickup.name("RB", k), v) for k, v in sorted(src.bonuses.iteritems(), lambda (lk, _), (rk, __): int(lk) - int(rk))]:
+            for (name, cnt) in [(Pickup.name("RB", k), v) for k, v in sorted(iter(src.bonuses.items()), lambda (lk, _), (rk, __): int(lk) - int(rk))]:
                 if "Tree" in name:
                     trees.append(name.replace(" Tree", ""))
                 elif "Relic" in name:
@@ -1126,7 +1126,7 @@ class Game(ndb.Model):
             inv = {}
             seen_sets = {player.pid(): player.seen_coords() for player in players if player.pid() in group}
             if self.dedup:
-                seen = set([c for coord_set in seen_sets.values() for c in coord_set])
+                seen = set([c for coord_set in list(seen_sets.values()) for c in coord_set])
                 for p in params.placements:
                     coord = int(p.location)
                     if coord in seen:
@@ -1139,7 +1139,7 @@ class Game(ndb.Model):
                 shards = set()
                 for p in params.placements:
                     coord = int(p.location)
-                    for pid, seen in seen_sets.items():
+                    for pid, seen in list(seen_sets.items()):
                         if coord in seen:
                             stuff = [s for s in p.stuff if int(s.player) == pid_map.get(pid, pid)]
                             if(len(stuff) != 1):
@@ -1195,9 +1195,9 @@ class Game(ndb.Model):
         sanFailedSignal = "msg:@Major Error during sanity check. If this persists across multiple alt+l attempts please contact Eiko@"
         shared_inventories = self.get_inventories(ps)
         i = 0
-        for pids, inv in shared_inventories.items():
+        for pids, inv in list(shared_inventories.items()):
             players = [p for p in ps if p.pid() in pids]
-            for key, count in inv.iteritems():
+            for key, count in inv.items():
                 if key[0] == "WT":
                     continue # hahahaha fucking christ
                 pickup = Pickup.n(key[0], key[1])
@@ -1245,7 +1245,7 @@ class Game(ndb.Model):
             rb_cnt = max(tup[3] for tup in stuples)
             bonus_max = {}
             for p_bonus in bonuses:
-                for item, cnt in p_bonus.items():
+                for item, cnt in list(p_bonus.items()):
                     m = max(bonus_max.get(item, 0), cnt)
                     if m:
                         bonus_max[item] = m
@@ -1262,7 +1262,7 @@ class Game(ndb.Model):
                     player.teleporters = tp_max
                 if len(player.bonuses) < rb_cnt:
                     msglines = ["Checksum failure!"]
-                    for item, mx in bonus_max.items():
+                    for item, mx in list(bonus_max.items()):
                         cnt = player.bonuses.get(item, 0)
                         if cnt  < mx:
                             msglines.append("Player %s had %s of %s instead of %s" % (player.pid(), cnt, item, mx))
@@ -1289,7 +1289,7 @@ class Game(ndb.Model):
         hist = self.rebuild_hist()
         if not hist:
             return []
-        return [hl for players, hls in hist.items() for hl in hls]
+        return [hl for players, hls in list(hist.items()) for hl in hls]
 
     def player(self, pid, create=True, delay_put=False):
         gid = self.key.id()
@@ -1490,7 +1490,7 @@ class Game(ndb.Model):
         if Variation.BINGO not in params.variations:
             teams = params.sync.teams
             if teams:
-                for playerNums in teams.itervalues():
+                for playerNums in teams.values():
                     team = [game.player(p, delay_put = True) for p in playerNums]
                     teamKeys = [p.key for p in team]
                     for player in team:
@@ -1511,7 +1511,7 @@ class Game(ndb.Model):
 
     @staticmethod
     def new(_mode=None, _shared=None, gid=None):
-        if isinstance(_shared, (list,)):
+        if isinstance(_shared, list):
             shared = enums_from_strlist(ShareType, _shared)
         else:
             shared = Game.DEFAULT_SHARED

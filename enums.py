@@ -15,7 +15,7 @@ class StrEnum(str, Enum):
             return cls(val)
         except ValueError:
             if fuzzycase:
-                for possible_match in cls.__members__.values():
+                for possible_match in list(cls.__members__.values()):
                     if possible_match._value_.lower() == val.lower():
                         return possible_match
                 log.warning("%s could not be parsed into to any valid %s, returning None" % (val, cls))

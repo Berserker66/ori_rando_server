@@ -15,7 +15,7 @@ forced_pickup_pattern = re.compile(".*forced pickup.*\[([^]]+)\]")
 normal_line_pattern = re.compile(" *(\w+) from (\w+)")
 
 def vals(enumType):
-    return [v.value for v in enumType.__members__.values()]
+    return [v.value for v in list(enumType.__members__.values())]
 
 def defaultgroup():
     return {"items": Counter(), "forced": Counter(), "locs": 0, "seeds": 0, "force": 0}
@@ -115,7 +115,7 @@ class CLISeedParams(object):
             "warmth_frags": "WarmthFrags", "world_tour": "WorldTour", "closed_dungeons": "ClosedDungeons", "tp_starved": "TPStarved", "wall_starved": "WallStarved"
         }
         self.variations = []
-        for argName, flagStr in varMap.iteritems():
+        for argName, flagStr in varMap.items():
             if getattr(args, argName, False):
                 v = Variation.mk(flagStr)
                 if v:
@@ -262,7 +262,7 @@ class CLISeedParams(object):
                 self.seed = "%s_%s" % (base_seed, count)
 
             if self.do_loc_analysis:
-                print(self.seed)
+                print((self.seed))
 
             sg = SeedGenerator()
 
@@ -320,21 +320,21 @@ class CLISeedParams(object):
         if self.do_analysis:
 #            output = open("analysis.csv", 'w')
 #            output.write("Location,Zone,WallJump,ChargeFlame,DoubleJump,Bash,Stomp,Glide,Climb,ChargeJump,Dash,Grenade,GinsoKey,ForlornKey,HoruKey,Water,Wind,WaterVeinShard,GumonSealShard,SunstoneShard,TPGrove,TPGrotto,TPSwamp,TPValley,TPSorrow,TPGinso,TPForlorn,TPHoru,Relic\n")
-            for i, group in info_by_group.items():
+            for i, group in list(info_by_group.items()):
                 seeds = float(group["seeds"])
-                print "%d (%d): " % (i, int(seeds))
-                print "\tkey items: [", 
-                for item, count in group["items"].items():
-                    print '%s: %02.2f%%,' % (item, 100*float(count)/seeds),
-                print "]\n\tforced: [", 
-                for item, count in group["forced"].items():
-                    print '%s: %02.2f%%,' % (item, 100*float(count)/float(group["force"])),
-                print "]\n\taverage locs", float(group['locs'])/seeds
+                print("%d (%d): " % (i, int(seeds)))
+                print("\tkey items: [", end=' ') 
+                for item, count in list(group["items"].items()):
+                    print('%s: %02.2f%%,' % (item, 100*float(count)/seeds), end=' ')
+                print("]\n\tforced: [", end=' ') 
+                for item, count in list(group["forced"].items()):
+                    print('%s: %02.2f%%,' % (item, 100*float(count)/float(group["force"])), end=' ')
+                print("]\n\taverage locs", float(group['locs'])/seeds)
             with open("anal.pickle", 'w') as out_file:
                 pickle.dump(info_by_group, out_file)
             with open("analysis.csv", 'w') as out_file:
                 out_file.write("Group,Seeds,Forced,Locs,WallJump,ChargeFlame,DoubleJump,Bash,Stomp,Glide,Climb,ChargeJump,Dash,Grenade,GinsoKey,ForlornKey,HoruKey,Water,Wind,TPGrove,TPGrotto,TPSwamp,TPValley,TPSorrow,TPGinso,TPForlorn,TPHoru,WallJump,ChargeFlame,DoubleJump,Bash,Stomp,Glide,Climb,ChargeJump,Dash,Grenade,GinsoKey,ForlornKey,HoruKey,Water,Wind,TPGrove,TPGrotto,TPSwamp,TPValley,TPSorrow,TPGinso,TPForlorn,TPHoru,KS,EC,HC,MS,AC\n")
-                for i, group in info_by_group.items():
+                for i, group in list(info_by_group.items()):
                     seeds = float(group["seeds"])
                     line = [i, int(seeds), int(group["force"]), "%02.2f" % (float(group["locs"])/seeds)]
                     for key_item in ["WallJump", "ChargeFlame", "DoubleJump", "Bash", "Stomp", "Glide", "Climb", "ChargeJump", "Dash", "Grenade", "GinsoKey", "ForlornKey", "HoruKey", "Water", "Wind","TPGrove","TPGrotto","TPSwamp","TPValley","TPSorrow","TPGinso","TPForlorn","TPHoru"]:
@@ -345,7 +345,7 @@ class CLISeedParams(object):
         if self.do_loc_analysis:
             output = open("analysis.csv", 'w')
             output.write("Group,WallJump,ChargeFlame,DoubleJump,Bash,Stomp,Glide,Climb,ChargeJump,Dash,Grenade,Water,Wind,WaterVeinShard,GumonSealShard,SunstoneShard,TPGrove,TPGrotto,TPSwamp,TPValley,TPSorrow,TPGinso,TPForlorn,TPHoru,\n")
-            for key in self.locationAnalysis.keys():
+            for key in list(self.locationAnalysis.keys()):
                 line = key + ","
                 line += str(self.locationAnalysis[key]["Zone"]) + ","
                 line += str(self.locationAnalysis[key]["WallJump"]) + ","
@@ -380,7 +380,7 @@ class CLISeedParams(object):
 
     def get_preset(self):
         pathset = set(self.logic_paths)
-        for name, lps in presets.iteritems():
+        for name, lps in presets.items():
             if lps == pathset:
                 return name
         return "Custom"

@@ -1,13 +1,13 @@
 import unittest
 import webapp2
-import StringIO
-from seedgentest import SeedGenTests
+import io
+from .seedgentest import SeedGenTests
 
 class TestRunner(webapp2.RequestHandler):
 	def get(self):
 		self.response.headers['Content-Type'] = 'text/plain'
 		suite = unittest.TestLoader().loadTestsFromTestCase(SeedGenTests)
-		stream = StringIO.StringIO()
+		stream = io.StringIO()
 		res = unittest.TextTestRunner(verbosity=2, stream=stream).run(suite)
 		out = stream.getvalue()
 		stream.close()

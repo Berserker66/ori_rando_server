@@ -11,15 +11,15 @@ from webapp2_extras.routes import RedirectRoute as Route
 from google.appengine.ext.webapp import template
 from google.appengine.ext.ndb import transactional
 
-from cache import Cache
-from enums import MultiplayerGameType, Variation
-from models import Game, User, BingoCard, BingoGameData, BingoEvent, BingoTeam
-from pickups import Pickup, Skill, AbilityCell, HealthCell, EnergyCell, Multiple
-from util import param_val, param_flag, resp_error, debug, path, VER, version_check
-from seedbuilder.vanilla import seedtext as vanilla_seed
+from .cache import Cache
+from .enums import MultiplayerGameType, Variation
+from .models import Game, User, BingoCard, BingoGameData, BingoEvent, BingoTeam
+from .pickups import Pickup, Skill, AbilityCell, HealthCell, EnergyCell, Multiple
+from .util import param_val, param_flag, resp_error, debug, path, VER, version_check
+from .seedbuilder.vanilla import seedtext as vanilla_seed
 
 if debug:
-    from test.data import bingo_data as test_data
+    from .test.data import bingo_data as test_data
 
 class BingoGoal(object):
     max_repeats = 1
@@ -781,7 +781,7 @@ class BingoCreate(RequestHandler):
             if tps:
                 sw_parts.append("TPs: " + ", ".join(tps))
             if cells:
-                sw_parts.append("Cells: " + ", ".join([cell if amount == 1 else "%s %ss" % (amount, cell) for cell,amount in cells.items()]))
+                sw_parts.append("Cells: " + ", ".join([cell if amount == 1 else "%s %ss" % (amount, cell) for cell,amount in list(cells.items())]))
             if misc:
                 sw_parts.append(", ".join(misc))
         base = vanilla_seed.split("\n")

@@ -5,15 +5,15 @@ from collections import OrderedDict
 
 def _parsefatal(line, msg):
     if _VERBOSE:
-        print("[FATAL] line %d - %s" % (line, msg))
+        print(("[FATAL] line %d - %s" % (line, msg)))
 
 def _parseerror(line, msg):
     if _VERBOSE:
-        print("[ERROR] line %d - %s" % (line, msg))
+        print(("[ERROR] line %d - %s" % (line, msg)))
 
 def _parsewarn(line, msg):
     if _VERBOSE:
-        print("[WARN] line %d - %s" % (line, msg))
+        print(("[WARN] line %d - %s" % (line, msg)))
 
 _VERBOSE = False
 
@@ -91,8 +91,8 @@ def ori_load_url(url, verbose=False):
         lines = result.content.split("\n")
     except ImportError:
         # cli_gen uses urllib2 instead
-        import urllib2
-        response = urllib2.urlopen(url)
+        import urllib.request, urllib.error, urllib.parse
+        response = urllib.request.urlopen(url)
         lines = response.read().split("\n")
 
     return ori_load(lines, verbose)
@@ -279,8 +279,8 @@ def ori_load(lines, verbose=False):
         "SunkenGladesRunaway": True
     }
 
-    for area in contents["homes"].keys():
-        for target in contents["homes"][area]["conns"].keys():
+    for area in list(contents["homes"].keys()):
+        for target in list(contents["homes"][area]["conns"].keys()):
             connected[target] = True
             conn_type = contents["homes"][area]["conns"][target]["type"]
             if conn_type == "pickup" and target in contents["homes"]:
@@ -288,11 +288,11 @@ def ori_load(lines, verbose=False):
             elif conn_type == "conn" and target in contents["locs"]:
                 _parsewarn(0, "pickup location `%s` is connected from `%s` with type `conn` (should be `pickup`)" % (target, area))
 
-    for loc in contents["locs"].keys():
+    for loc in list(contents["locs"].keys()):
         if loc not in connected:
             _parsewarn(0, "pickup location `%s` is not connected from any home" % loc)
 
-    for home in contents["homes"].keys():
+    for home in list(contents["homes"].keys()):
         if home not in connected:
             _parsewarn(0, "home `%s` is not connected from any home!" % home)
 

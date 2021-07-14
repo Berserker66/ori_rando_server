@@ -5,26 +5,27 @@ from collections import Counter, defaultdict
 
 # web imports
 import logging as log
-from urllib2 import unquote, urlopen
+from urllib.parse import unquote
+from urllib.request import urlopen
 from webapp2_extras.routes import DomainRoute, PathPrefixRoute, RedirectRoute as Route
-from test import TestRunner
+from .test import TestRunner
 from webapp2 import WSGIApplication, RequestHandler, redirect, uri_for
 from datetime import datetime, timedelta
 from google.appengine.ext import ndb
 from google.appengine.ext.webapp import template
 
 # project imports
-from seedbuilder.seedparams import SeedGenParams
-from seedbuilder.vanilla import seedtext as vanilla_seed
-from enums import MultiplayerGameType, ShareType, Variation
-from models import Game, Seed, User, BingoGameData, CustomLogic, trees_by_coords
-from cache import Cache
-from util import coord_correction_map, all_locs, picks_by_type_generator, param_val, param_flag, resp_error, debug, path, VER, version_check, template_vals, layout_json, whitelist_ok
-from reachable import Map, PlayerState
-from pickups import Pickup
+from .seedbuilder.seedparams import SeedGenParams
+from .seedbuilder.vanilla import seedtext as vanilla_seed
+from .enums import MultiplayerGameType, ShareType, Variation
+from .models import Game, Seed, User, BingoGameData, CustomLogic, trees_by_coords
+from .cache import Cache
+from .util import coord_correction_map, all_locs, picks_by_type_generator, param_val, param_flag, resp_error, debug, path, VER, version_check, template_vals, layout_json, whitelist_ok
+from .reachable import Map, PlayerState
+from .pickups import Pickup
 
 # handlers
-from bingo import routes as bingo_routes
+from .bingo import routes as bingo_routes
 
 VERSION = "%s.%s.%s" % tuple(VER)
 PLANDO_VER = "0.5.1"
@@ -397,16 +398,16 @@ class GetReachable(RequestHandler):
         shared_coords = set()
         try:
             if game and game.mode == MultiplayerGameType.SHARED:
-                shared_hist = [hl for hls in hist.values() for hl in hls if hl.pickup().is_shared(game.shared)]
+                shared_hist = [hl for hls in list(hist.values()) for hl in hls if hl.pickup().is_shared(game.shared)]
                 shared_coords = set([hl.coords for hl in shared_hist])
-            for player, personal_hist in hist.items():
+            for player, personal_hist in list(hist.items()):
                 player_hist = [hl for hl in hist[player] if hl.coords not in shared_coords] + shared_hist
                 state = PlayerState([(h.pickup_code, h.pickup_id, 1, h.removed) for h in player_hist])
                 areas = {}
                 if state.has["KS"] > 8 and "standard-core" in modes:
                     state.has["KS"] += 2 * (state.has["KS"] - 8)
-                for area, reqs in Map.get_reachable_areas(state, modes).items():
-                    areas[area] = [{item: count for (item, count) in req.cnt.items()} for req in reqs if len(req.cnt)]
+                for area, reqs in list(Map.get_reachable_areas(state, modes).items()):
+                    areas[area] = [{item: count for (item, count) in list(req.cnt.items())} for req in reqs if len(req.cnt)]
                 reachable_areas[player] = areas
             self.response.write(json.dumps(reachable_areas))
         except AttributeError:
@@ -458,12 +459,12 @@ class GetItemTrackerUpdate(RequestHandler):
         }
         inventories = game.get_inventories(game.get_players(), True, True)
 
-        group_invs = [v for k,v in inventories.items() if k != "unshared"] if game.mode == MultiplayerGameType.SHARED else inventories["unshared"].values()
+        group_invs = [v for k,v in list(inventories.items()) if k != "unshared"] if game.mode == MultiplayerGameType.SHARED else list(inventories["unshared"].values())
         if len(group_invs) != 1:
             # worry about this later!
             log.warn("this isn't going to work...")
         inv = group_invs[0]
-        for ((pcode, pid), count) in inv.items():
+        for ((pcode, pid), count) in list(inv.items()):
             p = Pickup.n(pcode, pid)
             if not p:
                 log.warn("couldn't build pickup %s|%s" % (pcode, pid))
@@ -496,7 +497,7 @@ class GetItemTrackerUpdate(RequestHandler):
             data[thing] = list(data[thing])
         data['maps'] = max([0] + [len([1 for c in coords if c in range(24, 60, 4)])])
         if debug:
-            print data
+            print(data)
         Cache.set_items(game.key.id(), (data, inventories))
         return data, inventories
 
@@ -514,7 +515,7 @@ class GetMapUpdate(RequestHandler):
         game = None
         if not pos:
             pos = {}
-        for p, (x, y) in pos.items():
+        for p, (x, y) in list(pos.items()):
             players[p] = {"pos": [y, x], "seen": [], "reachable": []}  # bc we use tiling software, this is lat/lng, and thus coords need inverting
 
         coords = Cache.get_have(game_id)
@@ -526,7 +527,7 @@ class GetMapUpdate(RequestHandler):
                 return
             coords = { p.pid(): p.have_coords() for p in game.get_players() }
             Cache.set_have(game_id, coords)
-        for p, coords in coords.items():
+        for p, coords in list(coords.items()):
             if p not in players:
                 players[p] = {}
             players[p]["seen"] = coords
@@ -541,7 +542,7 @@ class GetMapUpdate(RequestHandler):
             items, inventories = GetItemTrackerUpdate.get_items(coords, game)
         reach = Cache.get_reachable(game_id)
         modes = tuple(sorted(param_val(self, "modes").split(" ")))
-        need_reach_updates = [p for p in players.keys() if modes not in reach.get(p, {})]
+        need_reach_updates = [p for p in list(players.keys()) if modes not in reach.get(p, {})]
         if need_reach_updates:
             if not game:
                 game = Game.with_id(game_id)
@@ -552,8 +553,8 @@ class GetMapUpdate(RequestHandler):
             if not inventories:
                 inventories = game.get_inventories(game.get_players(), True, True)
             for p in need_reach_updates:
-                inventory = [(pcode, pid, count, False) for ((pcode, pid), count) in inventories["unshared"][p].items()]
-                inventory  += [(pcode, pid, count, False) for group, inv in inventories.items()  if group != "unshared" and p in group for ((pcode, pid), count) in inv.items()]
+                inventory = [(pcode, pid, count, False) for ((pcode, pid), count) in list(inventories["unshared"][p].items())]
+                inventory  += [(pcode, pid, count, False) for group, inv in list(inventories.items())  if group != "unshared" and p in group for ((pcode, pid), count) in list(inv.items())]
                 state = PlayerState(inventory)
                 if state.has["KS"] > 8 and "standard-core" in modes:
                     state.has["KS"] += 2 * (state.has["KS"] - 8)
@@ -576,7 +577,7 @@ class GetPlayerPositions(RequestHandler):
         if pos:
             self.response.status = 200
             players = {}
-            for p, (x, y) in pos.items():
+            for p, (x, y) in list(pos.items()):
                 players[p] = [y, x]  # bc we use tiling software, this is lat/lng
             self.response.write(json.dumps(players))
         else:
@@ -587,20 +588,20 @@ class PlandoReachable(RequestHandler):
     def post(self):
         modes = json.loads(self.request.POST["modes"])
         codes = []
-        for item, count in json.loads(self.request.POST["inventory"]).iteritems():
+        for item, count in json.loads(self.request.POST["inventory"]).items():
             codes.append(tuple(item.split("|") + [count, False]))
         self.response.headers['Content-Type'] = 'application/json'
         self.response.status = 200
         areas = {}
-        for area, reqs in Map.get_reachable_areas(PlayerState(codes), modes).items():
-            areas[area] = [{item: count for (item, count) in req.cnt.items()} for req in reqs if len(req.cnt)]
+        for area, reqs in list(Map.get_reachable_areas(PlayerState(codes), modes).items()):
+            areas[area] = [{item: count for (item, count) in list(req.cnt.items())} for req in reqs if len(req.cnt)]
 
         self.response.write(json.dumps(areas))
 
 
 def clone_entity(e, **extra_args):
     klass = e.__class__
-    props = dict((v._code_name, v.__get__(e, klass)) for v in klass._properties.itervalues() if
+    props = dict((v._code_name, v.__get__(e, klass)) for v in klass._properties.values() if
                  type(v) != ndb.ComputedProperty)
     props.update(extra_args)
     return klass(**props)
@@ -1085,7 +1086,7 @@ class LatestMap(RequestHandler):
     def get(self, name):
         latest = User.latest_game(name)
         if latest:
-            return redirect("%s?%s" % (uri_for('map-render', game_id=latest), "&".join(["usermap=" + name] + ["%s=%s" % (k, v) for k, v in self.request.GET.items()])))
+            return redirect("%s?%s" % (uri_for('map-render', game_id=latest), "&".join(["usermap=" + name] + ["%s=%s" % (k, v) for k, v in list(self.request.GET.items())])))
         else:
             return resp_error(self, 404, "User not found or had no games on record")
 
