@@ -1,4 +1,3 @@
-import sys
 from os import path
 from collections import OrderedDict
 
@@ -300,5 +299,6 @@ def ori_load(lines, verbose=False):
 
 if __name__ == "__main__":
     import sys
-    fn = sys.argv[1]
-    ori_load_file(fn, True)
+    fn = sys.argv[1] if len(sys.argv) > 1 else "areas.ori"
+    result = ori_load_file(fn, True)
+    print(result)
