@@ -7,7 +7,7 @@ class Pickup(object):
     @staticmethod
     def subclasses():
         return [Skill, Event, Teleporter, Upgrade, Experience, AbilityCell, HealthCell, EnergyCell, Keystone, 
-                Mapstone, Message, Hint, Relic, Multiple, Repeatable, Warp, WarpSave, Nothing]
+                Mapstone, Message, Hint, Relic, Multiple, Repeatable, Warp, WarpSave, Nothing, TPWarp]
     stacks = False
     has_children = False
     int_id = True
@@ -28,7 +28,7 @@ class Pickup(object):
     @classmethod
     def name(cls, code, id):
         for subcls in Pickup.subclasses():
-            if code == subcls.code and subcls(id):
+            if id and code == subcls.code and subcls(id):
                 return subcls(id).name
         return "%s|%s" % (code, id)
     def add_to_bitfield(self, bits_int, remove=False):
@@ -65,7 +65,7 @@ class Event(Pickup):
         return inst
 
 class Teleporter(Pickup):
-    bits = {"Grove": 1, "Swamp": 2, "Grotto": 4, "Valley": 8, "Forlorn": 16, "Sorrow": 32, "Ginso": 64, "Horu": 128, "Blackroot": 256}
+    bits = {"Grove": 1, "Swamp": 2, "Grotto": 4, "Valley": 8, "Forlorn": 16, "Sorrow": 32, "Ginso": 64, "Horu": 128, "Blackroot": 256, "Glades": 512}
     code = "TP"
     share_type = ShareType.TELEPORTER
     int_id = False
@@ -229,7 +229,7 @@ class Multiple(Pickup):
             self.id += "/%s/%s" % (child.code, child.id)
             self.children.append(child)
     def is_shared(self, share_types):
-        return any([c.is_shared(share_types) for c in self.children])
+        return False # if you have a multipickup you have its children, so...
 
 class Repeatable(Multiple):
     code = "RP"
@@ -272,4 +272,13 @@ class WarpSave(Pickup):
     def __new__(cls, id):
         inst = super(WarpSave, cls).__new__(cls)
         inst.id, inst.bit, inst.name = id, None, "Warp to " + id + " and save"
+        return inst
+
+class TPWarp(Pickup):
+    code = "TW"
+    int_id = False
+    share_type = ShareType.TELEPORTER
+    def __new__(cls, id):
+        inst = super(TPWarp, cls).__new__(cls)
+        inst.id, inst.bit, inst.name = id, None, id.split(",")[0]
         return inst

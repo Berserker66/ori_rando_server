@@ -69,12 +69,12 @@ class Cache(object):
         memcache.set(key="%s.reach" % gid, value=reach_map, time=7200)
 
     @staticmethod
-    def get_items(gid):
-        return memcache.get(key="%s.items" % gid) or ({}, {})
+    def get_items(gid, pid):
+        return memcache.get(key="%s.%s.items" % (gid, pid)) or ({}, {})
 
     @staticmethod
-    def set_items(gid, items):
-        memcache.set(key="%s.items" % gid, value=items, time=14400)
+    def set_items(gid, pid, items, is_race=False):
+        memcache.set(key="%s.%s.items" % (gid, pid), value=items, time=10 if is_race else 14400)
 
     @staticmethod
     def get_relics(gid):
@@ -85,8 +85,8 @@ class Cache(object):
         memcache.set(key="%s.relics" % gid, value=relics, time=14400)
 
     @staticmethod
-    def clear_items(gid):
-        Cache.set_items(gid, {})
+    def clear_items(gid, pid=1):
+        Cache.set_items(gid, pid, {})
 
     @staticmethod
     def get_pos(gid):
@@ -113,6 +113,15 @@ class Cache(object):
     @staticmethod
     def set_board(gid, board):
         return memcache.set(key="%s.board" % gid, value=board, time=60)
+
+    @staticmethod
+    def get_areas():
+        areas = memcache.get(key="CURRENT_LOGIC")
+        if not areas:
+            with open("seedbuilder/areas.ori", 'r') as f:
+                areas = f.read()
+            memcache.set(key="CURRENT_LOGIC", value=areas, time=3600)
+        return areas
 
     @staticmethod
     def remove_game(gid):

@@ -12,6 +12,7 @@ from .test import TestRunner
 from webapp2 import WSGIApplication, RequestHandler, redirect, uri_for
 from datetime import datetime, timedelta
 from google.appengine.ext import ndb
+from google.appengine.api import urlfetch
 from google.appengine.ext.webapp import template
 
 # project imports
@@ -81,7 +82,7 @@ class ActiveGames(RequestHandler):
             flags = ""
             if game.params:
                 params = game.params.get()
-                if Variation.RACE in params.variations and not whitelist_ok(s):
+                if Variation.RACE in params.variations and not whitelist_ok(self):
                     continue
                 flags = params.flag_line()
                 slink = " <a href=%s>Seed</a>" % uri_for('main-page', game_id=gid, param_id=params.key.id())
@@ -146,11 +147,13 @@ class FoundPickup(RequestHandler):
             log.error("Couldn't build pickup %s|%s" % (kind, id))
             self.response.status = 406
             return
-        if pickup.code in ["AC", "KS", "HC", "EC", "SK", "EV", "TP"] or (pickup.code == "RB" and pickup.id in [17, 19, 21]):
-            Cache.clear_reach(game_id, player_id)
-            Cache.clear_items(game_id)
 
         self.response.status = game.found_pickup(player_id, pickup, coords, remove, param_flag(self, "override"), zone, [int(self.request.GET.get("s%s"%i, 0)) for i in range(8)])
+        if game.is_race:
+            Cache.clear_items(game_id)
+        elif pickup.code in ["AC", "KS", "HC", "EC", "SK", "EV", "TP"] or (pickup.code == "RB" and pickup.id in [17, 19, 21]):
+            Cache.clear_reach(game_id, player_id)
+            Cache.clear_items(game_id)
         self.response.write(self.response.status)
 
 class GetUpdate(RequestHandler):
@@ -189,6 +192,7 @@ class PostUpdate(RequestHandler):
 class ShowHistory(RequestHandler):
     def get(self, game_id):
         self.response.headers['Content-Type'] = 'text/plain'
+        template_values = template_vals(self, "History", "Game %s" % game_id, User.get())
         game = Game.with_id(game_id)
         if game:
             if (Variation.RACE in game.params.get().variations) and not template_values["race_wl"]:
@@ -199,7 +203,7 @@ class ShowHistory(RequestHandler):
             pids = [int(pid) for pid in param_val(self, "pids").split("|")] if param_val(self, "pids") else []
             hls = game.history(pids) if param_flag(self, "verbose") else [h for h in game.history(pids) if h.pickup().is_shared(share_types)]
             for hl in sorted(hls, key=lambda x: x.timestamp, reverse=True):
-                output += "\n\t\t Player %s %s" % (hl.player, hl.print_line(game.start_time))
+                output += "\n\t\t%s Player %s %s" % ((hl.player-1)*"\t\t\t\t", hl.player, hl.print_line(game.start_time))
             self.response.status = 200
             self.response.write(output)
         else:
@@ -394,6 +398,7 @@ class GetReachable(RequestHandler):
             return
         modes = param_val(self, "modes").split(" ")
         game = Game.with_id(game_id)
+        spawn = game.params.get().spawn or "Glades"
         shared_hist = []
         shared_coords = set()
         try:
@@ -406,7 +411,7 @@ class GetReachable(RequestHandler):
                 areas = {}
                 if state.has["KS"] > 8 and "standard-core" in modes:
                     state.has["KS"] += 2 * (state.has["KS"] - 8)
-                for area, reqs in list(Map.get_reachable_areas(state, modes).items()):
+                for area, reqs in Map.get_reachable_areas(state, modes, spawn).items():
                     areas[area] = [{item: count for (item, count) in list(req.cnt.items())} for req in reqs if len(req.cnt)]
                 reachable_areas[player] = areas
             self.response.write(json.dumps(reachable_areas))
@@ -417,20 +422,22 @@ class GetReachable(RequestHandler):
 
 
 class ItemTracker(RequestHandler):
-    def get(self, game_id):
+    def get(self, game_id, player_id=1):
         game = Game.with_id(game_id)
 
         template_values = template_vals(self, "ItemTracker", "Game %s" % game_id, User.get())
         if game and Variation.RACE in game.params.get().variations and not template_values["race_wl"]:
             return resp_error(self, 401, "Access forbidden")
         template_values['game_id'] = game_id
+        template_values['player_id'] = player_id
         self.response.write(template.render(path, template_values))
 
 
 class GetItemTrackerUpdate(RequestHandler):
-    def get(self, game_id):
+    def get(self, game_id, player_id=1):
+        pid = int(player_id)
         self.response.headers['Content-Type'] = 'application/json'
-        items, _ = Cache.get_items(game_id)
+        items, _ = Cache.get_items(game_id, pid)
         if not items:
             coords = Cache.get_have(game_id)
             game = Game.with_id(game_id)
@@ -441,24 +448,23 @@ class GetItemTrackerUpdate(RequestHandler):
                     return
                 coords = { p.pid(): p.have_coords() for p in game.get_players() }
                 Cache.set_have(game_id, coords)
-            items, _ = GetItemTrackerUpdate.get_items(coords, game)
+            items, _ = GetItemTrackerUpdate.get_items(coords[pid], game, pid)
         self.response.write(json.dumps(items))
 
     @staticmethod
-    def get_items(coords, game):
+    def get_items(coords, game, player=1):
         relics = game.relics
         data = {
             'skills': set(),
             'trees': set(),
             'events': set(),
             'shards': {'wv': 0, 'gs': 0, 'ss': 0},
-            'maps': defaultdict(lambda: set()),
+            'maps': 0,
             'relics_found': set(),
             'relics': relics,
             'teleporters': set()
         }
         inventories = game.get_inventories(game.get_players(), True, True)
-
         group_invs = [v for k,v in list(inventories.items()) if k != "unshared"] if game.mode == MultiplayerGameType.SHARED else list(inventories["unshared"].values())
         if len(group_invs) != 1:
             # worry about this later!
@@ -501,6 +507,11 @@ class GetItemTrackerUpdate(RequestHandler):
         Cache.set_items(game.key.id(), (data, inventories))
         return data, inventories
 
+#class SetSpiritFlame(RequestHandler):
+#    get(self, game_id, value):
+
+
+
 class GetMapUpdate(RequestHandler):
     def get(self, game_id):
         self.response.headers['Content-Type'] = 'application/json'
@@ -531,15 +542,6 @@ class GetMapUpdate(RequestHandler):
             if p not in players:
                 players[p] = {}
             players[p]["seen"] = coords
-        items, inventories = Cache.get_items(game_id)
-        if not items:
-            if not game:
-                game = Game.with_id(game_id)
-            if not game:
-                self.response.status = 404
-                self.response.write(json.dumps({"error": "Game not found"}))
-                return
-            items, inventories = GetItemTrackerUpdate.get_items(coords, game)
         reach = Cache.get_reachable(game_id)
         modes = tuple(sorted(param_val(self, "modes").split(" ")))
         need_reach_updates = [p for p in list(players.keys()) if modes not in reach.get(p, {})]
@@ -552,6 +554,7 @@ class GetMapUpdate(RequestHandler):
                     return
             if not inventories:
                 inventories = game.get_inventories(game.get_players(), True, True)
+            spawn = game.params.get().spawn or "Glades"
             for p in need_reach_updates:
                 inventory = [(pcode, pid, count, False) for ((pcode, pid), count) in list(inventories["unshared"][p].items())]
                 inventory  += [(pcode, pid, count, False) for group, inv in list(inventories.items())  if group != "unshared" and p in group for ((pcode, pid), count) in list(inv.items())]
@@ -560,11 +563,11 @@ class GetMapUpdate(RequestHandler):
                     state.has["KS"] += 2 * (state.has["KS"] - 8)
                 if p not in reach:
                     reach[p] = {}
-                reach[p][modes] = Map.get_reachable_areas(state, modes, False)
+                reach[p][modes] = Map.get_reachable_areas(state, modes, spawn, False)
             Cache.set_reachable(game_id, reach)
         for p in reach:
             players[p]["reachable"] = reach[p][modes]
-        res = {"players": players, "items": items}
+        res = {"players": players} # , "items": items
         if gid_changed:
             res["newGid"] = game_id
         self.response.write(json.dumps(res))
@@ -671,7 +674,6 @@ class PlandoUpload(RequestHandler):
             return
         seed_data = json.loads(self.request.POST["seed"])
         old_name = seed_data["oldName"]
-        name = seed_data["name"]
         old_seed = user.plando(old_name)
         if old_seed:
             res = old_seed.update(seed_data)
@@ -950,8 +952,8 @@ class GetSeedFromParams(RequestHandler):
         params = SeedGenParams.with_id(params_id)
         if params:
             pid = int(self.request.GET.get("player_id", 1))
-            if params.tracking:
-                game_id = self.request.GET.get("game_id")
+            game_id = self.request.GET.get("game_id")
+            if params.tracking and game_id:
                 seed = params.get_seed(pid, game_id, verbose_paths)
                 game = Game.with_id(game_id)
                 user = User.get()
@@ -1118,6 +1120,18 @@ class SetTheme(RequestHandler):
         else:
             return resp_error(self, 401, "You are not logged in!", "text/plain")
 
+class ToggleVerbose(RequestHandler):
+    def get(self):
+        self.response.headers['Content-Type'] = 'text/plain'
+        user = User.get()
+        if user:
+            user.verbose = not user.verbose
+            user.put()
+            self.response.write("verbose seed spoilers set to %s" % user.verbose)
+            return
+        else:
+            return resp_error(self, 401, "You are not logged in!", "text/plain")
+
 class NakedRedirect(RequestHandler):
     def get(self, path):
         return redirect(self.request.url.replace("www.", ""))
@@ -1163,15 +1177,10 @@ class GetCustomLogic(RequestHandler):
     def get(self):
         self.response.out.write(CustomLogic.read())
 
-class WotwTempMap(RequestHandler):
+class GetAreas(RequestHandler):
     def get(self):
-        template_values = template_vals(self, "WotwMap", "Wotw Map", User.get())
-
-        template_values.update({'is_spoiler': "True", 'pathmode': param_val(self, 'pathmode'), 'HC': param_val(self, 'HC'),
-                           'EC': param_val(self, 'EC'), 'AC': param_val(self, 'AC'), 'KS': param_val(self, 'KS'),
-                           'skills': param_val(self, 'skills'), 'tps': param_val(self, 'tps'), 'evs': param_val(self, 'evs')})
-        self.response.write(template.render(path, template_values))
-
+        self.response.headers['Content-Type'] = 'text/plain'
+        self.response.write(Cache.get_areas())
 
 def all_releases():
     return json.loads(urlopen("https://api.github.com/repos/sparkle-preference/OriWotwRandomizerClient/releases").read())
@@ -1226,7 +1235,6 @@ app = WSGIApplication(
         Route('/map', handler=MapTest, name='tests-map', strict_slash=True),
         Route('/map/<game_id:\d+>', handler=MapTest, name='tests-map-gid', strict_slash=True),
     ]),
-    Route('/wotwMap', handler=WotwTempMap),
     Route('/user/custom_logic/set', handler=SetCustomLogic, name='set-custom-logic'),
     Route('/user/custom_logic/get', handler=GetCustomLogic, name='get-custom-logic'),
     Route('/tests', redirect_to_name='tests-run'),
@@ -1248,8 +1256,9 @@ app = WSGIApplication(
         Route('/', redirect_to_name="map-render"),
         Route('/map', handler=ShowMap, name='map-render', strict_slash=True),
         Route('/items', handler=ItemTracker, name='item-tracker', strict_slash=True),
+        Route('/<player_id:\d+>/items', handler=ItemTracker, name='item-tracker', strict_slash=True),
         ] + list(PathPrefixRoute('/fetch', [
-            Route('/items', handler=GetItemTrackerUpdate, name='item-tracker-update'),
+            Route('/items/<player_id:\d+>', handler=GetItemTrackerUpdate, name='item-tracker-update'),
             Route('/pos', handler=GetPlayerPositions, name="map-fetch-pos"),
             Route('/gamedata', handler=GetGameData, name="map-fetch-game-data"),
             Route('/seen', handler=GetSeenLocs, name="map-fetch-seen"),
@@ -1270,6 +1279,7 @@ app = WSGIApplication(
     Route('/user/settings/update', handler=SetSettings, strict_slash=True, name="user-settings-update"),
     Route('/user/settings/number/<new_num:\d+>', handler=SetPlayerNum, strict_slash=True, name="user-set-player-num"),
     Route('/user/settings/theme/<new_theme>', handler=SetTheme, strict_slash=True, name="user-set-player-theme"),
+    Route('/user/settings/verbose', handler=ToggleVerbose, strict_slash=True, name="user-toggle-verbose"),
     Route('/activeGames/', handler=ActiveGames, strict_slash=True, name="active-games"),
     Route('/activeGames/<hours:\d+>', handler=ActiveGames, strict_slash=True, name="active-games-hours"),
     ('/rebinds', RebindingsEditor),
@@ -1282,11 +1292,11 @@ app = WSGIApplication(
     ('/vanilla', Vanilla),
     Route('/reroll', handler=QuickReroll, strict_slash=True, name="reroll-last"),
     Route('/discord', redirect_to="https://discord.gg/TZfue9V"),
-    Route('/discord/dev', redirect_to="https://discord.gg/Ahwh4Na"),
+    Route('/discord/dev', redirect_to="https://discord.gg/sfUr8ra5P7"),
     Route('/reset/<game_id:\d+>', handler=ResetGame, name="restart-game"),
     Route('/transfer/<game_id:\d+>/<new_owner>', handler=ResetAndTransfer, name="transfer-game"),
     Route('/dll', redirect_to="https://github.com/sparkle-preference/OriDERandomizer/raw/master/Assembly-CSharp.dll"),
-    Route('/dll/bingo', redirect_to="https://github.com/sparkle-preference/OriDERandomizer/raw/master/Assembly-CSharp.dll"),
+    Route('/dll/beta', redirect_to="https://github.com/sparkle-preference/OriDERandomizer/raw/master/Assembly-CSharp.dll"),
     Route('/tracker', redirect_to="https://github.com/meldontaragon/OriDETracker/releases/latest"),
     Route('/weekly', redirect_to='https://docs.google.com/forms/d/e/1FAIpQLSew3Fx9ypwkKHuWhEDH-Edb7PtDpi1w0XAjdILK7sRm_EohBw/viewform?usp=pp_url&entry.1986108575=Bonus+Items&entry.1986108575=Teleporters+in+item+pool&entry.1986108575=Items+on+quests&entry.1986108575=Hints+sold+by+NPCs&entry.60604526=spawn+with:+Sword&entry.1306149304=Normal', name="weekly-poll"),
     Route('/weekly/vote', redirect_to='https://docs.google.com/forms/d/e/1FAIpQLSew3Fx9ypwkKHuWhEDH-Edb7PtDpi1w0XAjdILK7sRm_EohBw/viewform?usp=pp_url&entry.1986108575=Bonus+Items&entry.1986108575=Teleporters+in+item+pool&entry.1986108575=Items+on+quests&entry.1986108575=Hints+sold+by+NPCs&entry.60604526=spawn+with:+Sword&entry.1306149304=Normal', name="weekly-poll"),
@@ -1302,6 +1312,7 @@ app = WSGIApplication(
 #    Route('/openBook/leaderboard', redirect_to='https://docs.google.com/spreadsheets/d/1X6jJpjJVY_mly--9tnV9EGo5I6I_gJ4Sepkf51S9rQ4/edit#gid=172059369&range=A1:D1', name="open-book-leaderboard"),
     Route('/theme/toggle', handler=ThemeToggle, name="theme-toggle"),
     # netcode endpoints
+    Route('/netcode/areas', handler=GetAreas, name="areas-raw"),
     PathPrefixRoute('/netcode/game/<game_id:\d+>/player/<player_id:[^/]+>', [
         Route('/found/<coords>/<kind>/<id:.*>', handler=FoundPickup, name="netcode-player-found-pickup"),
         Route('/tick/<x:[^,]+>,<y>', handler=GetUpdate, name="netcode-player-tick"),
@@ -1327,14 +1338,26 @@ app = WSGIApplication(
         Route('/tipsandtricks', redirect_to='https://docs.google.com/document/d/1E5QhT0c3cZRwhVRQapNPUMluGsQ46p5_SUDm_glFeOc/'),
         Route('/runnersignup', redirect_to='https://docs.google.com/forms/d/e/1FAIpQLSdQ78-UEbfEhFYto2xLx_1zbK6PDgLfjAgqmV8Xon80tTHfpQ/viewform'),
         Route('/volunteersignup', redirect_to='https://docs.google.com/forms/d/e/1FAIpQLSdduWEMO9FbCIdRLWEB82r5yBdwn8AW8B4_26m4YaprvCymeA/viewform?usp=sf_link'),
+        Route('/restreamerguide', redirect_to='https://docs.google.com/document/d/1p378vWvDXlHo-1J9GTRpsEmIyZ5NiPJy9ZzXjDP8VFE/'),
+        Route('/restreamerchecklist', redirect_to='https://drive.google.com/file/d/16z3z6EVO_kCYbFQFDiDPSJQbptv5EJ5x/view'),
+        Route('/commentaryguide', redirect_to='https://docs.google.com/document/d/1LoChjkOAgr1MGQ3prhjXjnRpAVFy6Rbb4UEHOIozKJs/edit#'),
+        Route('/truckguide', redirect_to='https://docs.google.com/document/d/1iDFkJOz8Bkugb2fvkjcRuNCbCveJX3-02sAVnUj4dM0/edit#'),
+        Route('/preliminarystandings', redirect_to='https://docs.google.com/spreadsheets/d/1xeiQb1pf7zwY9YS7OTRrlHBhG8Zy6M6Qh4Rbq9OMuuo'),
+        Route('/vods', redirect_to='https://docs.google.com/spreadsheets/d/16cs0Q1RNLgmvmd5E7dhPAEWVJ7M4NpskMBgau3RupEQ/'),
         Route('/obslayout', handler=TourneyLayout),
+        Route('/seedprefs', redirect_to='https://docs.google.com/forms/d/e/1FAIpQLScSRsjV6AFUyJQUjn_7EmO7qoEBKkOboy6wapPVoHb4gSFRoA/viewform?usp=pp_url&entry.1476829546=No&entry.1252857494=No&entry.1688839863=No&entry.471087235=No&entry.804542867=No&entry.1664745973=No'),
+        Route('/seedprefs/edit', redirect_to='https://docs.google.com/forms/d/e/1FAIpQLScSRsjV6AFUyJQUjn_7EmO7qoEBKkOboy6wapPVoHb4gSFRoA/viewform'),
+        Route('/seedprefs/details', redirect_to='https://docs.google.com/document/d/16lnSTtVqFpiXEOjabtn25laGwJ0Szf4Mn7UOgd82gN0/'),
+
     ]),
+
+    Route('/trickglossary', redirect_to='https://docs.google.com/document/d/1vjDiXz8UPiIOtUVKPlgzjBn9lrCE4y95EwPt0WnQF_U/'),
+    Route('/trickrepo', redirect_to='https://www.youtube.com/channel/UCowq0m-wHdwi0vpG3jY1hFA'),
 
     # plando endpoints
     Route('/plando/reachable', PlandoReachable, strict_slash=True, name="plando-reachable"),
     Route('/plando/fillgen', PlandoFillGen, strict_slash=True, name="plando-fillgen"),
     Route('/plandos', AllAuthors, strict_slash=True, name="plando-view-all"),
-
     PathPrefixRoute('/plando/<seed_name:[^ ?=/]+>', [
         Route('/upload', PlandoUpload, strict_slash=True, name="plando-upload"),
         Route('/edit', PlandoEdit, strict_slash=True, name="plando-edit"),
